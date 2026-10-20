@@ -1,9 +1,19 @@
 #include <GLFW/glfw3.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #define PI 3.1415926535
 #define mapSize 32
-#define tileSize 40
+#define tileSize 20
+#define deg 0.0174533
+#define startY 500
+#define fov 80
+#define rays 300
+
+typedef struct {
+  float distance;
+  bool shadow;
+} RayHit;
 
 float px = 20, py = 20, pa = 0;
 float speed = 3;
@@ -53,38 +63,32 @@ int getMapTile(int x, int y) {
   return map[x][y];
 }
 
-void drawPlayer() {
-  glColor3f(1, 0, 0);
-  glPointSize(10);
-  glBegin(GL_POINTS);
-  glVertex2f(px, py);
-  glEnd();
-
+RayHit drawRay(float angle) {
   int x1 = px, y1 = py;
   float x2 = px, y2 = py;
   int xTile = 0, yTile = 0;
 
-  glColor3f(1, 0, 0);
-  glLineWidth(1);
-  glBegin(GL_LINES);
-  glVertex2i(px, py);
+  if (angle < 0)
+    angle += 2 * PI;
+  if (angle > 2 * PI)
+    angle -= +2 * PI;
 
   for (int i = 0; i < mapSize; i++) {
-    if (pa > PI / 2 && pa < 1.5 * PI) {
-      x1 = ((int)x1 / tileSize) * tileSize - 0.0001f;
+    if (angle > PI / 2 && angle < 1.5 * PI) {
+      x1 = ((int)x1 / tileSize) * tileSize - 0.0003f;
     } else {
       x1 = ((int)x1 / tileSize) * tileSize + tileSize;
     }
-    y1 = (tan(pa) * (x1 - px)) + py;
+    y1 = (tan(angle) * (x1 - px)) + py;
     if (getMapTile((int)x1 / tileSize, (int)y1 / tileSize))
       break;
   }
 
-  float rayTan = tanf(pa);
+  float rayTan = tanf(angle);
   if (fabsf(rayTan) > 0.0001f) {
     for (int i = 0; i < mapSize; i++) {
-      if (pa > PI && pa < 2 * PI) {
-        y2 = ((int)y2 / tileSize) * tileSize - 0.0001f;
+      if (angle > PI && angle < 2 * PI) {
+        y2 = ((int)y2 / tileSize) * tileSize - 0.0003f;
       } else {
         y2 = ((int)y2 / tileSize) * tileSize + tileSize;
       }
@@ -96,13 +100,60 @@ void drawPlayer() {
 
   int size1 = sqrt(pow(x1 - px, 2) + pow(y1 - py, 2));
   int size2 = sqrt(pow(x2 - px, 2) + pow(y2 - py, 2));
+  RayHit hit;
 
   if (size1 <= size2) {
-    glVertex2i(x1, y1);
+    hit.distance = size1;
+    hit.shadow = true;
+    return hit;
   } else {
-    glVertex2i(x2, y2);
+    hit.distance = size2;
+    hit.shadow = false;
+    return hit;
+  }
+}
+
+void drawColumn(int i, int distance, bool shadow) {
+  glBegin(GL_QUADS);
+
+  if (shadow) {
+    glColor3f(0.8, 0.2, 0.2);
+  } else {
+    glColor3f(0.8, 0.1, 0.1);
   }
 
+  int height = 400 - (distance);
+  int width = 1600 / rays;
+  int positionX = i * width;
+  int positionY = startY + (400 - height) / 2;
+
+  glVertex2i(positionX, positionY);
+  glVertex2i(positionX + width, positionY);
+  glVertex2i(positionX + width, positionY + height);
+  glVertex2i(positionX, positionY + height);
+
+  glEnd();
+}
+
+void drawPlayer() {
+  glColor3f(1, 0, 0);
+  glPointSize(10);
+  glBegin(GL_POINTS);
+  glVertex2f(px, py);
+  glEnd();
+  for (int i = -(rays / 2); i < (rays / 2); i++) {
+    RayHit hit = drawRay(pa + (i * (fov * deg / rays)));
+    drawColumn(i, hit.distance, hit.shadow);
+  }
+}
+
+void drawBackground() {
+  glBegin(GL_QUADS);
+  glColor3f(0.1, 0.1, 0.1);
+  glVertex2i(0, startY);
+  glVertex2i(800, startY);
+  glVertex2i(800, startY + 400);
+  glVertex2i(0, startY + 400);
   glEnd();
 }
 
@@ -138,6 +189,7 @@ void drawMap() {
 
 void display() {
   drawMap();
+  drawBackground();
   drawPlayer();
 }
 
@@ -156,6 +208,7 @@ void manageKeys(GLFWwindow *window) {
   if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
     pa += rotationSpeed;
   }
+
   if (pa < 0)
     pa += 2 * PI;
   if (pa > 2 * PI)
