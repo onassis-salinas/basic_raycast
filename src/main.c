@@ -2,22 +2,24 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
-#define PI 3.1415926535
+#define PI 3.14159265
 #define mapSize 32
-#define tileSize 20
+#define tileSize 40
 #define deg 0.0174533
-#define startY 500
 #define fov 80
-#define rays 300
+#define rays 500
 
 typedef struct {
   float distance;
   bool shadow;
+  int color;
 } RayHit;
 
-float px = 20, py = 20, pa = 0;
-float speed = 3;
-float rotationSpeed = 0.04;
+int screenWidth, screenHeight;
+
+float px = 200, py = 200, pa = 0;
+float speed = 1;
+float rotationSpeed = 0.03;
 
 int map[mapSize][mapSize] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
@@ -64,9 +66,10 @@ int getMapTile(int x, int y) {
 }
 
 RayHit drawRay(float angle) {
-  int x1 = px, y1 = py;
+  float x1 = px, y1 = py;
   float x2 = px, y2 = py;
   int xTile = 0, yTile = 0;
+  int color1 = 0, color2 = 0;
 
   if (angle < 0)
     angle += 2 * PI;
@@ -80,8 +83,10 @@ RayHit drawRay(float angle) {
       x1 = ((int)x1 / tileSize) * tileSize + tileSize;
     }
     y1 = (tan(angle) * (x1 - px)) + py;
-    if (getMapTile((int)x1 / tileSize, (int)y1 / tileSize))
+    if (getMapTile((int)x1 / tileSize, (int)y1 / tileSize)) {
+      color1 = getMapTile((int)x1 / tileSize, (int)y1 / tileSize);
       break;
+    }
   }
 
   float rayTan = tanf(angle);
@@ -93,67 +98,96 @@ RayHit drawRay(float angle) {
         y2 = ((int)y2 / tileSize) * tileSize + tileSize;
       }
       x2 = (y2 - py) / rayTan + px;
-      if (getMapTile((int)x2 / tileSize, (int)y2 / tileSize))
+      if (getMapTile((int)x2 / tileSize, (int)y2 / tileSize)) {
+        color2 = getMapTile((int)x2 / tileSize, (int)y2 / tileSize);
         break;
+      }
     }
   }
 
-  int size1 = sqrt(pow(x1 - px, 2) + pow(y1 - py, 2));
-  int size2 = sqrt(pow(x2 - px, 2) + pow(y2 - py, 2));
+  float size1 = INFINITY;
+  float size2 = INFINITY;
+  if (color1 != 0)
+    size1 = sqrt(pow(x1 - px, 2) + pow(y1 - py, 2)) * cos(angle - pa);
+  if (color2 != 0)
+    size2 = sqrt(pow(x2 - px, 2) + pow(y2 - py, 2)) * cos(angle - pa);
+
   RayHit hit;
 
   if (size1 <= size2) {
     hit.distance = size1;
     hit.shadow = true;
+    hit.color = color1;
     return hit;
   } else {
     hit.distance = size2;
     hit.shadow = false;
+    hit.color = color2;
     return hit;
   }
 }
 
-void drawColumn(int i, int distance, bool shadow) {
-  glBegin(GL_QUADS);
-
-  if (shadow) {
-    glColor3f(0.8, 0.2, 0.2);
+void setWallColor(int tileType, bool shadow) {
+  float red, green, blue;
+  if (tileType == 1) {
+    red = 0.76f, green = 0.72f, blue = 0.64f;
+  } else if (tileType == 2) {
+    red = 0.58f, green = 0.32f, blue = 0.24f;
+  } else if (tileType == 3) {
+    red = 0.46f, green = 0.36f, blue = 0.24f;
   } else {
-    glColor3f(0.8, 0.1, 0.1);
+    red = 0.18f, green = 0.18f, blue = 0.17f;
   }
 
-  int height = 400 - (distance);
-  int width = 1600 / rays;
-  int positionX = i * width;
-  int positionY = startY + (400 - height) / 2;
+  if (shadow) {
+    red *= 0.75f, green *= 0.75f, blue *= 0.75f;
+  }
+
+  glColor3f(red, green, blue);
+}
+
+void drawColumn(int i, float distance, bool shadow, int color) {
+  glBegin(GL_QUADS);
+  setWallColor(color, shadow);
+
+  float height = screenHeight / (fmax(distance, 40) / 40);
+  float width = (float)screenWidth / rays;
+  float positionX = (i + (rays / 2)) * width;
+  float positionY = (screenHeight - height) / 2;
 
   glVertex2i(positionX, positionY);
-  glVertex2i(positionX + width, positionY);
-  glVertex2i(positionX + width, positionY + height);
+  glVertex2i(positionX + width + 0.1, positionY);
+  glVertex2i(positionX + width + 0.1, positionY + height);
   glVertex2i(positionX, positionY + height);
 
   glEnd();
 }
 
 void drawPlayer() {
-  glColor3f(1, 0, 0);
-  glPointSize(10);
-  glBegin(GL_POINTS);
-  glVertex2f(px, py);
-  glEnd();
   for (int i = -(rays / 2); i < (rays / 2); i++) {
-    RayHit hit = drawRay(pa + (i * (fov * deg / rays)));
-    drawColumn(i, hit.distance, hit.shadow);
+    float angle = pa + (i * (deg / 10));
+    RayHit hit = drawRay(angle);
+    drawColumn(i, hit.distance, hit.shadow, hit.color);
   }
 }
 
 void drawBackground() {
   glBegin(GL_QUADS);
-  glColor3f(0.1, 0.1, 0.1);
-  glVertex2i(0, startY);
-  glVertex2i(800, startY);
-  glVertex2i(800, startY + 400);
-  glVertex2i(0, startY + 400);
+  glColor3f(0.34f, 0.55f, 0.78f);
+  glVertex2i(0, 0);
+  glVertex2i(screenWidth, 0);
+  glColor3f(0.72f, 0.82f, 0.90f);
+  glVertex2i(screenWidth, screenHeight / 2);
+  glVertex2i(0, screenHeight / 2);
+  glEnd();
+
+  glBegin(GL_QUADS);
+  glColor3f(0.52f, 0.50f, 0.47f);
+  glVertex2i(0, screenHeight / 2);
+  glVertex2i(screenWidth, screenHeight / 2);
+  glColor3f(0.30f, 0.29f, 0.27f);
+  glVertex2i(screenWidth, screenHeight);
+  glVertex2i(0, screenHeight);
   glEnd();
 }
 
@@ -162,17 +196,7 @@ void drawMap() {
 
   for (int y = 0; y < mapSize; y++) {
     for (int x = 0; x < mapSize; x++) {
-      int tileType = map[x][y];
-
-      if (tileType == 3) {
-        glColor3f(0, 1, 1);
-      } else if (tileType == 2) {
-        glColor3f(1, 0, 1);
-      } else if (tileType == 1) {
-        glColor3f(1, 1, 1);
-      } else {
-        glColor3f(0, 0, 0);
-      }
+      setWallColor(map[x][y], false);
 
       xo = x * tileSize;
       yo = y * tileSize;
@@ -188,7 +212,7 @@ void drawMap() {
 }
 
 void display() {
-  drawMap();
+  // drawMap();
   drawBackground();
   drawPlayer();
 }
@@ -240,14 +264,13 @@ int main() {
   glClearColor(0.f, 0.f, 0.f, 1.f); // once, after the context is current
 
   while (!glfwWindowShouldClose(window)) {
-    int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
+    glfwGetFramebufferSize(window, &screenWidth, &screenHeight);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(0, width, height, 0, -1, 1);
+    glOrtho(0, screenWidth, screenHeight, 0, -1, 1);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    glViewport(0, 0, width, height);
+    glViewport(0, 0, screenWidth, screenHeight);
     double time = glfwGetTime();
     glfwSwapInterval(1);
     glfwPollEvents();
